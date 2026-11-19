@@ -147,13 +147,13 @@ void my_free(void *ptr) {
 
     block_t *blk = header(ptr);
 
-    if (blk->magic != MAGIC_USED && blk->magic != MAGIC_FREE) {
+    if ((unsigned int)blk->magic != MAGIC_USED && (unsigned int)blk->magic != MAGIC_FREE) {
         const char msg[] = "my_free: invalid pointer\n";
         write(STDERR_FILENO, msg, sizeof(msg) - 1);
         return;
     }
 
-    if (blk->free || blk->magic == MAGIC_FREE) {
+    if (blk->free || (unsigned int)blk->magic == MAGIC_FREE) {
         const char msg[] = "my_free: double free detected\n";
         write(STDERR_FILENO, msg, sizeof(msg) - 1);
         return;
