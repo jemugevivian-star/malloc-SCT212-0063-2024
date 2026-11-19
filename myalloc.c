@@ -1,6 +1,7 @@
 #define _DEFAULT_SOURCE
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include "myalloc.h"
@@ -88,15 +89,21 @@ static block_t *grow(size_t need) {
 }
 
 /* Task 3: First-fit search */
+static fit_policy_t current_policy = FIT_FIRST;
+
 static block_t *find_fit(size_t need) {
-    block_t *cur = head;
-    while (cur != NULL) {
-        if (cur->free && cur->size >= need) {
-            return cur;
+    block_t *best = NULL;
+    for (block_t *c = head; c != NULL; c = c->next) {
+        if (c->free && c->size >= need) {
+            if (current_policy == FIT_FIRST) {
+                return c;
+            }
+            if (best == NULL || c->size < best->size) {
+                best = c;
+            }
         }
-        cur = cur->next;
     }
-    return NULL;
+    return best;
 }
 
 void *my_malloc(size_t size) {
@@ -121,6 +128,8 @@ void *my_malloc(size_t size) {
     blk->magic = MAGIC_USED;
     return payload(blk);
 }
+
+static void split_block(block_t *blk, size_t need);
 
 static void coalesce(void) {
     block_t *cur = head;
@@ -226,18 +235,73 @@ void *my_realloc(void *ptr, size_t size) {
 }
 
 void heap_stats(heap_stats_t *out) {
-    if (out != NULL) {
-        memset(out, 0, sizeof(*out));
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+
+    for (block_t *c = head; c != NULL; c = c->next) {
+        out->blocks++;
+        if (c->free) {
+            out->free_blocks++;
+            out->free_bytes += c->size;
+            if (c->size > out->largest_free) {
+                out->largest_free = c->size;
+            }
+        } else {
+            out->used_bytes += c->size;
+        }
     }
 }
 
 void heap_dump(void) {
+    char buf[256];
+    size_t idx = 0;
+    for (block_t *c = head; c != NULL; c = c->next) {
+        int n = snprintf(buf, sizeof(buf), "[%zu] %p size=%zu %s
+",
+                         idx, (void *)c, c->size, c->free ? "FREE" : "USED");
+        if (n > 0) {
+            size_t len = (size_t)n < sizeof(buf) - 1 ? (size_t)n : sizeof(buf) - 1;
+            write(STDOUT_FILENO, buf, len);
+        }
+        idx++;
+    }
 }
 
 void set_policy(fit_policy_t p) {
-    (void)p;
+    current_policy = p;
 }
 
 int heap_check(void) {
+    block_t *prev = NULL;
+    for (block_t *c = head; c != NULL; c = c->next) {
+        if (((uintptr_t)c % ALIGN) != 0) {
+            return 0;
+        }
+        if (((uintptr_t)payload(c) % ALIGN) != 0) {
+            return 0;
+        }
+        unsigned int m = (unsigned int)c->magic;
+        if (c->free) {
+            if (m != MAGIC_FREE) {
+                return 0;
+            }
+        } else {
+            if (m != MAGIC_USED) {
+                return 0;
+            }
+        }
+        if (prev != NULL) {
+            if ((uintptr_t)c <= (uintptr_t)prev) {
+                return 0;
+            }
+            if (prev->free && c->free &&
+                (char *)prev + HDR + prev->size == (char *)c) {
+                return 0;
+            }
+        }
+        prev = c;
+    }
     return 1;
 }
