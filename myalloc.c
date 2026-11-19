@@ -164,16 +164,65 @@ void my_free(void *ptr) {
     coalesce();
 }
 
-void *my_calloc(size_t n, size_t size) {
-    (void)n;
-    (void)size;
-    return NULL;
+void *my_calloc(size_t nmemb, size_t size) {
+    if (nmemb == 0 || size == 0) {
+        return NULL;
+    }
+    if (nmemb > SIZE_MAX / size) {
+        return NULL;
+    }
+
+    size_t total = nmemb * size;
+    void *p = my_malloc(total);
+    if (p != NULL) {
+        memset(p, 0, total);
+    }
+    return p;
 }
 
 void *my_realloc(void *ptr, size_t size) {
-    (void)ptr;
-    (void)size;
-    return NULL;
+    if (ptr == NULL) {
+        return my_malloc(size);
+    }
+    if (size == 0) {
+        my_free(ptr);
+        return NULL;
+    }
+
+    size_t need = align_up(size);
+    if (need == 0) {
+        return NULL;
+    }
+
+    block_t *blk = header(ptr);
+
+    if (blk->size >= need) {
+        split_block(blk, need);
+        return ptr;
+    }
+
+    block_t *nxt = blk->next;
+    if (nxt != NULL && nxt->free &&
+        (char *)blk + HDR + blk->size == (char *)nxt &&
+        blk->size + HDR + nxt->size >= need) {
+        blk->size += HDR + nxt->size;
+        blk->next = nxt->next;
+        if (tail == nxt) {
+            tail = blk;
+        }
+        split_block(blk, need);
+        return ptr;
+    }
+
+    void *new_ptr = my_malloc(size);
+    if (new_ptr == NULL) {
+        return NULL;
+    }
+
+    size_t copy_sz = blk->size < size ? blk->size : size;
+    memcpy(new_ptr, ptr, copy_sz);
+    my_free(ptr);
+    return new_ptr;
 }
 
 void heap_stats(heap_stats_t *out) {
