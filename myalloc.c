@@ -122,9 +122,46 @@ void *my_malloc(size_t size) {
     return payload(blk);
 }
 
-/* Temporary placeholders so test_myalloc.c compiles for T1 and T2 */
+static void coalesce(void) {
+    block_t *cur = head;
+    while (cur != NULL && cur->next != NULL) {
+        block_t *nxt = cur->next;
+        char *end_of_cur = (char *)cur + HDR + cur->size;
+
+        if (cur->free && nxt->free && end_of_cur == (char *)nxt) {
+            cur->size += HDR + nxt->size;
+            cur->next = nxt->next;
+            if (tail == nxt) {
+                tail = cur;
+            }
+        } else {
+            cur = cur->next;
+        }
+    }
+}
+
 void my_free(void *ptr) {
-    (void)ptr;
+    if (ptr == NULL) {
+        return;
+    }
+
+    block_t *blk = header(ptr);
+
+    if (blk->magic != MAGIC_USED && blk->magic != MAGIC_FREE) {
+        const char msg[] = "my_free: invalid pointer\n";
+        write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        return;
+    }
+
+    if (blk->free || blk->magic == MAGIC_FREE) {
+        const char msg[] = "my_free: double free detected\n";
+        write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        return;
+    }
+
+    blk->free = 1;
+    blk->magic = MAGIC_FREE;
+    coalesce();
 }
 
 void *my_calloc(size_t n, size_t size) {
