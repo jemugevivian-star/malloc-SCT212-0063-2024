@@ -106,6 +106,8 @@ static block_t *find_fit(size_t need) {
     return best;
 }
 
+static void split_block(block_t *blk, size_t need);
+
 void *my_malloc(size_t size) {
     if (size == 0) {
         return NULL;
@@ -126,10 +128,31 @@ void *my_malloc(size_t size) {
 
     blk->free = 0;
     blk->magic = MAGIC_USED;
+        split_block(blk, need);
     return payload(blk);
 }
 
-static void split_block(block_t *blk, size_t need);
+
+static void split_block(block_t *blk, size_t need) {
+    if (blk == NULL || blk->size < need + HDR + ALIGN) {
+        return;
+    }
+    size_t rem_size = blk->size - need - HDR;
+    char *rem_addr = (char *)blk + HDR + need;
+    block_t *rem = (block_t *)rem_addr;
+
+    rem->size = rem_size;
+    rem->free = 1;
+    rem->magic = (int)MAGIC_FREE;
+    rem->next = blk->next;
+
+    blk->size = need;
+    blk->next = rem;
+
+    if (tail == blk) {
+        tail = rem;
+    }
+}
 
 static void coalesce(void) {
     block_t *cur = head;
@@ -242,6 +265,7 @@ void heap_stats(heap_stats_t *out) {
 
     for (block_t *c = head; c != NULL; c = c->next) {
         out->blocks++;
+        out->heap_bytes += HDR + c->size;
         if (c->free) {
             out->free_blocks++;
             out->free_bytes += c->size;
@@ -258,8 +282,7 @@ void heap_dump(void) {
     char buf[256];
     size_t idx = 0;
     for (block_t *c = head; c != NULL; c = c->next) {
-        int n = snprintf(buf, sizeof(buf), "[%zu] %p size=%zu %s
-",
+        int n = snprintf(buf, sizeof(buf), "[%zu] %p size=%zu %s\n",
                          idx, (void *)c, c->size, c->free ? "FREE" : "USED");
         if (n > 0) {
             size_t len = (size_t)n < sizeof(buf) - 1 ? (size_t)n : sizeof(buf) - 1;
